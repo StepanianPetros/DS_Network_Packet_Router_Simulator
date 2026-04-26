@@ -91,6 +91,7 @@ namespace ConsoleApp1
         }
 
         // Extract the i-th bit from an IP address (left to right, 0-indexed)
+        // Optimized: Uses bit shifting instead of string conversion for maximum performance
         private static int ExtractBit(uint ip, int bitIndex)
             => (int)((ip >> (IPv4BitsLength - 1 - bitIndex)) & 1);
 
