@@ -21,6 +21,7 @@ A high-performance IPv4 network packet router simulator implemented in C# using 
 - `benchmark` - Run performance benchmark
 - `load-routes <file>` - Load routes from file
 - `load-packets <file>` - Process packets from file
+- `version` - Show version information
 - `help` - Show help
 - `clear` - Clear screen
 - `exit` - Exit program
