@@ -82,6 +82,10 @@ namespace ConsoleApp1
                         else _router.ProcessPackets(parts[1]);
                         break;
 
+                    case "version":
+                        PrintVersion();
+                        break;
+
                     case "help":
                         PrintHelp();
                         break;
@@ -131,10 +135,24 @@ namespace ConsoleApp1
             Console.WriteLine("║ load-routes <file>                       Load routes from file  ║");
             Console.WriteLine("║ load-packets <file>                      Process packets        ║");
             Console.WriteLine("║ benchmark                                Benchmark Trie vs O(n) ║");
+            Console.WriteLine("║ version                                  Show version info      ║");
             Console.WriteLine("║ help                                     Show this help         ║");
             Console.WriteLine("║ clear                                    Clear screen           ║");
             Console.WriteLine("║ exit, quit                               Exit program           ║");
             Console.WriteLine("╚════════════════════════════════════════════════════════════════╝");
+        }
+
+        private static void PrintVersion()
+        {
+            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
+            Console.WriteLine("║                    VERSION INFORMATION                         ║");
+            Console.WriteLine("╠════════════════════════════════════════════════════════════════╣");
+            Console.WriteLine("║ Network Packet Router Simulator         v1.0.0                 ║");
+            Console.WriteLine("║ Built with .NET 10.0                                          ║");
+            Console.WriteLine("║ Algorithm: Binary Patricia Trie (O(1) lookups)                ║");
+            Console.WriteLine("║ Author: StepanianPetros                                        ║");
+            Console.WriteLine("║ Date: April 2026                                               ║");
+            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝\n");
         }
 
         private static void ShowError(string message) => Console.WriteLine($"✗ {message}");
