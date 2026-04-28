@@ -11,18 +11,17 @@ namespace ConsoleApp1
         private readonly TrieNode _root = new();
         private readonly List<Route> _routes = new();
 
-        // Add a route: traverse down the trie, creating nodes as needed
         public void Insert(uint network, int prefix, string interfaceName, int metric)
         {
-            var node = _root;
+            TrieNode node = _root;
 
-            // Walk down the trie for each bit in the prefix
             for (int i = 0; i < prefix; i++)
             {
                 int bit = ExtractBit(network, i);
                 if (node.Child[bit] == null)
                     node.Child[bit] = new TrieNode();
-                node = node.Child[bit];
+
+                node = node.Child[bit]!;
             }
 
             var route = new Route
@@ -34,23 +33,20 @@ namespace ConsoleApp1
             };
 
             node.Route = route;
-            
-            // Keep track of all routes for display/reporting
             _routes.RemoveAll(r => r.Network == network && r.Prefix == prefix);
             _routes.Add(route);
         }
 
-        // Remove a route from the trie
         public void Delete(uint network, int prefix)
         {
             DeleteRecursive(_root, network, prefix, 0);
             _routes.RemoveAll(r => r.Network == network && r.Prefix == prefix);
         }
 
-        // Recursively traverse and delete a route
-        private bool DeleteRecursive(TrieNode node, uint network, int prefix, int depth)
+        private bool DeleteRecursive(TrieNode? node, uint network, int prefix, int depth)
         {
-            if (node == null) return false;
+            if (node == null)
+                return false;
 
             if (depth == prefix)
             {
@@ -69,16 +65,15 @@ namespace ConsoleApp1
         private static bool IsEmptyNode(TrieNode node)
             => node.Route == null && node.Child[0] == null && node.Child[1] == null;
 
-        // Find the route with the longest matching prefix for this IP
         public Route? Lookup(uint ip)
         {
-            var node = _root;
+            TrieNode? node = _root;
             Route? bestMatch = null;
 
-            // Traverse all 32 bits, keeping track of the best (longest) match
             for (int i = 0; i < IPv4BitsLength; i++)
             {
-                if (node == null) break;
+                if (node == null)
+                    break;
 
                 if (node.Route != null)
                     bestMatch = node.Route;

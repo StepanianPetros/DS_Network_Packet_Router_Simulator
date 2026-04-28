@@ -6,125 +6,153 @@ using System.Linq;
 
 namespace ConsoleApp1
 {
-    // Manages the routing engine: loads routes, forwards packets, tracks statistics
     public class Router
     {
+        private const int Ipv4BitCount = 32;
+
         private readonly RoutingTrie _routingTable = new();
         private readonly Dictionary<string, int> _packetsByInterface = new();
         private readonly List<PacketLogEntry> _packetLog = new();
-        private int _droppedCount = 0;
-        private long _totalLookupTimeNs = 0;
-        private int _lookupCount = 0;
 
-        // Load routes from a text file (CIDR notation)
+        private int _droppedCount;
+        private long _totalLookupTimeNs;
+        private int _lookupCount;
+
         public void LoadRoutes(string path)
         {
             try
             {
-                int count = 0;
-                foreach (var line in File.ReadAllLines(path))
+                var lines = File.ReadAllLines(path);
+                var loaded = 0;
+
+                foreach (var line in lines)
                 {
-                    if (TryParseRouteLine(line, out var network, out var prefix, out var interfaceName, out var metric))
-                    {
-                        _routingTable.Insert(network, prefix, interfaceName, metric);
-                        count++;
-                    }
+                    if (!TryParseRouteLine(line, out var network, out var prefix, out var interfaceName, out var metric))
+                        continue;
+
+                    _routingTable.Insert(network, prefix, interfaceName, metric);
+                    loaded++;
                 }
-                Console.WriteLine($"✓ Loaded {count} routes");
+
+                Console.WriteLine($"✓ Loaded {loaded} routes");
             }
-            catch (Exception ex) { Console.WriteLine($"✗ Error: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"✗ Error: {ex.Message}");
+            }
         }
 
-        // Process a file containing packets to route
         public void ProcessPackets(string path)
         {
             try
             {
-                int count = 0;
-                foreach (var line in File.ReadAllLines(path))
+                var lines = File.ReadAllLines(path);
+                var processed = 0;
+
+                foreach (var line in lines)
                 {
-                    if (TryParsePacketLine(line, out var srcIp, out var dstIp, out var payloadSize))
-                    {
-                        RoutePacket(srcIp, dstIp, payloadSize);
-                        count++;
-                    }
+                    if (!TryParsePacketLine(line, out var sourceIp, out var destinationIp, out var payloadSize))
+                        continue;
+
+                    RoutePacket(sourceIp, destinationIp, payloadSize);
+                    processed++;
                 }
-                Console.WriteLine($"✓ Processed {count} packets");
+
+                Console.WriteLine($"Processed {processed} packets");
             }
-            catch (Exception ex) { Console.WriteLine($"✗ Error: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"✗ Error: {ex.Message}");
+            }
         }
 
-        // Add a new route dynamically
         public void AddRoute(string cidr, string interfaceName, int metric = 1)
         {
             try
             {
                 var parts = cidr.Split('/');
-                if (parts.Length != 2) throw new ArgumentException("Invalid CIDR format");
-                
-                uint network = IpStringToUint(parts[0]);
-                int prefix = int.Parse(parts[1]);
-                
-                if (prefix < 0 || prefix > 32) throw new ArgumentException("Prefix must be 0-32");
+                if (parts.Length != 2)
+                    throw new ArgumentException("Invalid CIDR format");
+
+                var network = IpStringToUint(parts[0]);
+                var prefix = int.Parse(parts[1]);
+
+                if (prefix < 0 || prefix > Ipv4BitCount)
+                    throw new ArgumentException("Prefix must be 0-32");
 
                 _routingTable.Insert(network, prefix, interfaceName, metric);
-                Console.WriteLine($"✓ Route added: {cidr} -> {interfaceName}");
+                Console.WriteLine($"Route added: {cidr} -> {interfaceName}");
             }
-            catch (Exception ex) { Console.WriteLine($"✗ Error: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"✗ Error: {ex.Message}");
+            }
         }
 
-        // Remove a route
         public void DeleteRoute(string cidr)
         {
             try
             {
                 var parts = cidr.Split('/');
-                if (parts.Length != 2) throw new ArgumentException("Invalid CIDR format");
+                if (parts.Length != 2)
+                    throw new ArgumentException("Invalid CIDR format");
 
-                _routingTable.Delete(IpStringToUint(parts[0]), int.Parse(parts[1]));
-                Console.WriteLine($"✓ Route deleted: {cidr}");
+                var network = IpStringToUint(parts[0]);
+                var prefix = int.Parse(parts[1]);
+
+                _routingTable.Delete(network, prefix);
+                Console.WriteLine($"Route deleted: {cidr}");
             }
-            catch (Exception ex) { Console.WriteLine($"✗ Error: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"✗ Error: {ex.Message}");
+            }
         }
 
-        // Lookup route for a single IP address
         public void Lookup(string ip)
         {
             try
             {
-                var sw = Stopwatch.StartNew();
+                var timer = Stopwatch.StartNew();
                 var route = _routingTable.Lookup(IpStringToUint(ip));
-                sw.Stop();
+                timer.Stop();
 
-                if (route == null)
-                    Console.WriteLine($"✗ No route found for {ip}");
+                if (route is null)
+                {
+                    Console.WriteLine($"No route found for {ip}");
+                }
                 else
-                    Console.WriteLine($"✓ {ip} -> {route.Interface} (/{route.Prefix}, metric: {route.Metric})");
-                    
-                Console.WriteLine($"  Lookup time: {sw.Elapsed.TotalMicroseconds:F2} µs");
+                {
+                    Console.WriteLine($"{ip} -> {route.Interface} (/{route.Prefix}, metric: {route.Metric})");
+                }
+
+                Console.WriteLine($"  Lookup time: {timer.Elapsed.TotalMicroseconds:F2} µs");
             }
-            catch (Exception ex) { Console.WriteLine($"✗ Error: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"✗ Error: {ex.Message}");
+            }
         }
 
-        // Route a single packet and log the result
-        private void RoutePacket(string srcIp, string dstIp, uint payloadSize)
+        private void RoutePacket(string sourceIp, string destinationIp, uint payloadSize)
         {
-            var sw = Stopwatch.StartNew();
-            var route = _routingTable.Lookup(IpStringToUint(dstIp));
-            sw.Stop();
+            var timer = Stopwatch.StartNew();
+            var route = _routingTable.Lookup(IpStringToUint(destinationIp));
+            timer.Stop();
 
-            _totalLookupTimeNs += sw.Elapsed.Ticks * 100;
+            var lookupTimeNs = timer.Elapsed.Ticks * 100;
+            _totalLookupTimeNs += lookupTimeNs;
             _lookupCount++;
 
             var logEntry = new PacketLogEntry
             {
-                SourceIp = srcIp,
-                DestinationIp = dstIp,
+                SourceIp = sourceIp,
+                DestinationIp = destinationIp,
                 PayloadSize = payloadSize,
-                LookupTimeNs = sw.Elapsed.Ticks * 100
+                LookupTimeNs = lookupTimeNs,
             };
 
-            if (route == null)
+            if (route is null)
             {
                 _droppedCount++;
                 logEntry.Result = "DROPPED";
@@ -143,165 +171,173 @@ namespace ConsoleApp1
             _packetLog.Add(logEntry);
         }
 
-        // Parse a route line (format: CIDR interface [metric])
         private bool TryParseRouteLine(string line, out uint network, out int prefix, out string interfaceName, out int metric)
         {
             network = 0;
             prefix = 0;
-            interfaceName = "";
+            interfaceName = string.Empty;
             metric = 1;
 
-            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) return false;
+            if (IsEmptyOrComment(line))
+                return false;
 
             var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 2) return false;
+            if (parts.Length < 2)
+                return false;
 
-            var cidr = parts[0].Split('/');
-            if (cidr.Length != 2) return false;
+            var cidrParts = parts[0].Split('/');
+            if (cidrParts.Length != 2)
+                return false;
 
             try
             {
-                network = IpStringToUint(cidr[0]);
-                prefix = int.Parse(cidr[1]);
+                network = IpStringToUint(cidrParts[0]);
+                prefix = int.Parse(cidrParts[1]);
                 interfaceName = parts[1];
-                if (parts.Length > 2) metric = int.Parse(parts[2]);
+
+                if (parts.Length > 2)
+                    metric = int.Parse(parts[2]);
+
                 return true;
             }
-            catch { return false; }
+            catch
+            {
+                return false;
+            }
         }
 
-        // Parse a packet line (format: source_ip dest_ip payload_size)
-        private bool TryParsePacketLine(string line, out string srcIp, out string dstIp, out uint size)
+        private bool TryParsePacketLine(string line, out string sourceIp, out string destinationIp, out uint size)
         {
-            srcIp = dstIp = "";
+            sourceIp = string.Empty;
+            destinationIp = string.Empty;
             size = 0;
 
-            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) return false;
+            if (IsEmptyOrComment(line))
+                return false;
 
             var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 3) return false;
+            if (parts.Length < 3)
+                return false;
 
             try
             {
-                srcIp = parts[0];
-                dstIp = parts[1];
+                sourceIp = parts[0];
+                destinationIp = parts[1];
                 size = uint.Parse(parts[2]);
                 return true;
             }
-            catch { return false; }
+            catch
+            {
+                return false;
+            }
         }
+
+        private static bool IsEmptyOrComment(string text)
+            => string.IsNullOrWhiteSpace(text) || text.TrimStart().StartsWith("#", StringComparison.Ordinal);
 
         // Display all routing entries
         public void ShowRoutingTable()
         {
             var routes = _routingTable.GetAllRoutes().ToList();
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║              ROUTING TABLE (sorted by prefix length)              ║");
-            Console.WriteLine("╠════════════════════════════════════════════════════════════════╣");
+            Console.WriteLine();
+            Console.WriteLine("Routing table (sorted by prefix length):");
 
             if (routes.Count == 0)
             {
-                Console.WriteLine("║                           [EMPTY]                               ║");
+                Console.WriteLine("  [EMPTY]");
             }
             else
             {
                 foreach (var route in routes)
                 {
-                    string entry = $"  {UintToIpString(route.Network)}/{route.Prefix,2} -> {route.Interface,8} (metric: {route.Metric})";
-                    Console.WriteLine($"║ {entry,-62} ║");
+                    Console.WriteLine($"  {UintToIpString(route.Network)}/{route.Prefix,2} -> {route.Interface,8} (metric: {route.Metric})");
                 }
             }
 
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝");
-            Console.WriteLine($"Total routes: {routes.Count}\n");
+            Console.WriteLine($"Total routes: {routes.Count}");
+            Console.WriteLine();
         }
 
         // Display packet forwarding log
         public void ShowPacketLog()
         {
-            Console.WriteLine("\n╔═══════════════════════════════════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║                                    PACKET LOG                                           ║");
-            Console.WriteLine("╠═══════════════════════════════════════════════════════════════════════════════════════════════╣");
-            Console.WriteLine("║ Source IP       │ Dest IP         │ Size  │ Result   │ Interface │ Lookup Time (µs)       ║");
-            Console.WriteLine("╠═══════════════════════════════════════════════════════════════════════════════════════════════╣");
+            Console.WriteLine();
+            Console.WriteLine("Packet log:");
+            Console.WriteLine("  Source IP       | Dest IP         | Size  | Result   | Interface | Lookup Time (µs)");
+            Console.WriteLine("  ------------------------------------------------------------------------------");
 
             if (_packetLog.Count == 0)
             {
-                Console.WriteLine("║                                      [EMPTY]                                              ║");
+                Console.WriteLine("  [EMPTY]");
             }
             else
             {
                 foreach (var entry in _packetLog)
                 {
-                    double timeUs = entry.LookupTimeNs / 1000.0;
-                    string line = $"│ {entry.SourceIp,-15} │ {entry.DestinationIp,-15} │ {entry.PayloadSize,5} │ {entry.Result,-8} │ {entry.Interface,-9} │ {timeUs,18:F3} │";
-                    Console.WriteLine(line);
+                    var timeUs = entry.LookupTimeNs / 1000.0;
+                    Console.WriteLine($"  {entry.SourceIp,-15} | {entry.DestinationIp,-15} | {entry.PayloadSize,5} | {entry.Result,-8} | {entry.Interface,-9} | {timeUs,12:F3}");
                 }
             }
 
-            Console.WriteLine("╚═══════════════════════════════════════════════════════════════════════════════════════════════╝\n");
+            Console.WriteLine();
         }
 
         // Display routing statistics
         public void ShowStatistics()
         {
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║                      ROUTING STATISTICS                        ║");
-            Console.WriteLine("╠════════════════════════════════════════════════════════════════╣");
+            Console.WriteLine();
+            Console.WriteLine("Routing statistics:");
 
-            int routed = _packetLog.Count(p => p.Result == "ROUTED");
-            Console.WriteLine($"║ Total Packets Processed:      {_packetLog.Count,40} ║");
-            Console.WriteLine($"║ Packets Routed:               {routed,40} ║");
-            Console.WriteLine($"║ Packets Dropped:              {_droppedCount,40} ║");
+            var routed = _packetLog.Count(p => p.Result == "ROUTED");
+            Console.WriteLine($"  Total packets processed: {_packetLog.Count}");
+            Console.WriteLine($"  Packets routed:          {routed}");
+            Console.WriteLine($"  Packets dropped:         {_droppedCount}");
 
             if (_packetLog.Count > 0)
             {
-                double dropRate = ((double)_droppedCount / _packetLog.Count * 100);
-                Console.WriteLine($"║ Drop Rate:                    {dropRate,38:F2}% ║");
+                var dropRate = (_droppedCount / (double)_packetLog.Count) * 100;
+                Console.WriteLine($"  Drop rate:               {dropRate:F2}%");
             }
 
-            Console.WriteLine("╠════════════════════════════════════════════════════════════════╣");
-            Console.WriteLine("║ PACKETS PER INTERFACE:                                         ║");
-            Console.WriteLine("╠════════════════════════════════════════════════════════════════╣");
+            Console.WriteLine();
+            Console.WriteLine("Packets per interface:");
 
             if (_packetsByInterface.Count == 0)
             {
-                Console.WriteLine("║                       [No packets routed]                      ║");
+                Console.WriteLine("  [No packets routed]");
             }
             else
             {
                 foreach (var kvp in _packetsByInterface.OrderByDescending(x => x.Value))
-                    Console.WriteLine($"║ {kvp.Key,-30} {kvp.Value,20} ║");
+                    Console.WriteLine($"  {kvp.Key,-30} {kvp.Value}");
             }
-
-            Console.WriteLine("╠════════════════════════════════════════════════════════════════╣");
-            Console.WriteLine("║ PERFORMANCE METRICS:                                           ║");
-            Console.WriteLine("╠════════════════════════════════════════════════════════════════╣");
 
             if (_lookupCount > 0)
             {
-                double avgUs = _totalLookupTimeNs / (double)_lookupCount / 1000.0;
-                Console.WriteLine($"║ Total Lookups:                {_lookupCount,40} ║");
-                Console.WriteLine($"║ Average Lookup Time:          {avgUs,36:F3} µs ║");
-                Console.WriteLine($"║ Lookup Complexity:            O(32) = O(1) constant    ║");
+                var avgUs = _totalLookupTimeNs / (double)_lookupCount / 1000.0;
+                Console.WriteLine();
+                Console.WriteLine("Performance metrics:");
+                Console.WriteLine($"  Total lookups:           {_lookupCount}");
+                Console.WriteLine($"  Average lookup time:     {avgUs:F3} µs");
+                Console.WriteLine("  Lookup complexity:       O(1) constant");
             }
 
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝\n");
+            Console.WriteLine();
         }
 
         // Benchmark: Compare trie performance vs linear scan
         public void RunBenchmark()
         {
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║                  TRIE vs LINEAR SCAN BENCHMARK                 ║");
-            Console.WriteLine("╠════════════════════════════════════════════════════════════════╣\n");
+            Console.WriteLine();
+            Console.WriteLine("Benchmark: trie vs linear scan");
+            Console.WriteLine();
 
-            foreach (int tableSize in new[] { 50, 500, 5000 })
+            foreach (var tableSize in new[] { 50, 500, 5000 })
             {
                 BenchmarkAtSize(tableSize);
             }
 
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝\n");
+            Console.WriteLine();
         }
 
         private void BenchmarkAtSize(int tableSize)
@@ -356,18 +392,23 @@ namespace ConsoleApp1
 
         private Route? LinearScanLookup(uint ip, List<Route> routes)
         {
-            Route? best = null;
+            Route? bestMatch = null;
+
             foreach (var route in routes)
             {
-                uint mask = (0xFFFFFFFF << (32 - route.Prefix)) & 0xFFFFFFFF;
-                if ((ip & mask) == (route.Network & mask))
-                {
-                    if (best == null || route.Prefix > best.Prefix)
-                        best = route;
-                }
+                var mask = GetNetworkMask(route.Prefix);
+                if ((ip & mask) != (route.Network & mask))
+                    continue;
+
+                if (bestMatch == null || route.Prefix > bestMatch.Prefix)
+                    bestMatch = route;
             }
-            return best;
+
+            return bestMatch;
         }
+
+        private uint GetNetworkMask(int prefix)
+            => prefix == 0 ? 0u : 0xFFFFFFFFu << (Ipv4BitCount - prefix);
 
         private uint IpStringToUint(string ip)
         {
